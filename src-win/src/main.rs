@@ -1,5 +1,8 @@
-// Ce fichier est vide car toute la logique est dans main.cpp
-// Le point d'entrée réel est défini par /ENTRY:mainEntryPoint dans build.rs
+/*
+ * Real application and logic resides in c code
+ * This is just an inert file and does nothing.
+ * The real entry point is defined in build.rs via the entrypoint flag
+ */
 #![no_main]
 #![no_std]
 
