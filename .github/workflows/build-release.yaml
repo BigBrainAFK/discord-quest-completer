@@ -41,6 +41,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          targets: i686-pc-windows-msvc
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -70,16 +71,50 @@ jobs:
             echo "Game list is empty"
             exit 1
           fi
-      
-      # Build src-win
-      - name: Build src-win project x86_64 binary
+
+      # Fetch Crinkler (compressing linker, 32-bit only) and put it on PATH
+      - name: Download Crinkler
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $dir = "$env:RUNNER_TEMP\crinkler"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          # Omitting a tag downloads the latest release.
+          # Pin a tag (e.g. --pattern stays, add: v3.0a) for reproducible builds.
+          # Match any zip asset (the release ships a single Crinkler zip); avoids
+          # depending on the exact case/version in the filename.
+          gh release download --repo runestubbe/Crinkler --pattern "*.zip" --dir $dir
+          $zip = Get-ChildItem $dir -Filter *.zip | Select-Object -First 1
+          Expand-Archive -Path $zip.FullName -DestinationPath $dir -Force
+          # The archive ships it as win32\Crinkler.exe (capital C); match case-insensitively.
+          $exe = Get-ChildItem $dir -Recurse -Filter "*.exe" | Where-Object { $_.Name -ieq "crinkler.exe" } | Select-Object -First 1
+          if (-not $exe) { throw "crinkler.exe not found in archive" }
+          Write-Host "Found Crinkler at $($exe.FullName)"
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.Directory.FullName
+
+      # Build src-win as 32-bit and link it with Crinkler.
+      # The linker override is set via env (CI only) so local `cargo build` is unaffected.
+      - name: Build src-win project (x86, Crinkler)
         if: matrix.platform == 'windows-latest'
         shell: bash
+        env:
+          CARGO_TARGET_I686_PC_WINDOWS_MSVC_LINKER: crinkler.exe
         run: | 
           cd src-win
-          cargo build --release --verbose
+          cargo build --release --target i686-pc-windows-msvc --verbose
           cd ..
-          cp ./src-win/target/release/src-win.exe ./src-tauri/resources/src-win.exe
+          cp ./src-win/target/i686-pc-windows-msvc/release/src-win.exe ./src-tauri/resources/src-win.exe
+
+      # Optional: keep the Crinkler compression report as build evidence
+      - name: Upload Crinkler report
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: crinkler-report
+          path: src-win/report.html
+          if-no-files-found: ignore
 
       - name: Rust cache (Tauri App)
         uses: swatinem/rust-cache@v2
